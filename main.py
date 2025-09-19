@@ -7,7 +7,7 @@ from typing import Optional
 
 # Reuse existing logic from the scripts module
 try:
-    from scripts.youtube_downloader import get_video_info, get_direct_download_url
+    from src.scripts.youtube_downloader import get_video_info, get_direct_download_url
 except Exception as e:
     # If import fails at runtime on some platforms, raise a clear error
     raise RuntimeError(
