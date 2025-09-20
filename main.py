@@ -7,12 +7,15 @@ from typing import Optional
 
 # Reuse existing logic from the scripts module
 try:
-from .scripts.youtube_downloader import get_video_info, get_direct_download_url
-except Exception as e:
-    # If import fails at runtime on some platforms, raise a clear error
-    raise RuntimeError(
-        "Failed to import youtube_downloader module from scripts/. Ensure the project root is on PYTHONPATH."
-    ) from e
+    from .scripts.youtube_downloader import get_video_info, get_direct_download_url
+except ImportError:
+    try:
+        from scripts.youtube_downloader import get_video_info, get_direct_download_url
+    except Exception as e:
+        raise RuntimeError(
+            "Failed to import youtube_downloader module from scripts/. "
+            "Ensure the project root is on PYTHONPATH."
+        ) from e
 
 app = FastAPI(title="YouTube Downloader Backend", version="1.0.0")
 
@@ -96,7 +99,6 @@ async def proxy_download(request: Request):
         range_header = request.headers.get("range")
 
         headers = {
-            # Some CDNs require a browser-like UA and referer
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
@@ -109,32 +111,26 @@ async def proxy_download(request: Request):
         async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
             upstream = await client.stream("GET", download_url, headers=headers)
 
-            # Validate upstream response
             if upstream.status_code not in (200, 206):
-                # Drain response before closing to avoid warnings
                 await upstream.aclose()
                 raise HTTPException(status_code=502, detail=f"Upstream fetch failed: {upstream.status_code}")
 
-            # Determine content type
             content_type = upstream.headers.get("content-type", "application/octet-stream")
 
-            # Streaming generator
             async def iter_bytes():
                 async for chunk in upstream.aiter_bytes():
                     yield chunk
                 await upstream.aclose()
 
             response = StreamingResponse(iter_bytes(), status_code=upstream.status_code, media_type=content_type)
-            # Propagate length if present for browsers' progress UI
+
             content_length = upstream.headers.get("content-length")
             if content_length:
                 response.headers["Content-Length"] = content_length
 
-            # Force download
-            response.headers["Content-Disposition"] = f"attachment; filename=\"{filename}\""
+            response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
             response.headers["Cache-Control"] = "no-store"
 
-            # Forward ranged response headers when present
             for header_name in ("Accept-Ranges", "Content-Range"):
                 if header_name in upstream.headers:
                     response.headers[header_name] = upstream.headers[header_name]
@@ -146,7 +142,6 @@ async def proxy_download(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Optional local run helper
 if __name__ == "__main__":
     import uvicorn
     import os
