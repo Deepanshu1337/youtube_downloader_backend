@@ -47,12 +47,14 @@ def get_video_info(url):
             duration = info.get('duration', 0)
             duration_str = f"{duration // 60}:{duration % 60:02d}" if duration else "Unknown"
 
-            # Format view count
-            view_count = info.get('view_count', 0)
-            if view_count >= 1000000:
-                views = f"{view_count / 1000000".1f"}M views"
-            elif view_count >= 1000:
-                views = f"{view_count / 1000".1f"}K views"
+            # Format view count safely
+            view_count = info.get('view_count', 0) or 0
+            if view_count >= 1_000_000_000:
+                views = f"{view_count / 1_000_000_000:.1f}B views"
+            elif view_count >= 1_000_000:
+                views = f"{view_count / 1_000_000:.1f}M views"
+            elif view_count >= 1_000:
+                views = f"{view_count / 1_000:.1f}K views"
             else:
                 views = f"{view_count} views"
 
@@ -87,7 +89,6 @@ def get_direct_download_url(url, quality, format_type):
         if format_type == 'mp3':
             format_selector = 'bestaudio/best'
         else:
-            # For video formats, try to get the requested quality
             if quality == '1080p':
                 format_selector = 'best[height<=1080]'
             elif quality == '720p':
@@ -104,7 +105,6 @@ def get_direct_download_url(url, quality, format_type):
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Extract info to get the direct URL
             info = ydl.extract_info(url, download=False)
             title = info.get('title', 'video')
 
@@ -112,45 +112,37 @@ def get_direct_download_url(url, quality, format_type):
             safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).rstrip()
 
             # Get the direct download URL
+            download_url = None
             if 'url' in info:
                 download_url = info['url']
             elif 'formats' in info and info['formats']:
-                # Find the best format that matches our criteria
-                selected_format = None
                 for fmt in info['formats']:
                     if fmt.get('url'):
                         if format_type == 'mp3' and fmt.get('acodec') != 'none':
-                            selected_format = fmt
+                            download_url = fmt['url']
                             break
                         elif format_type != 'mp3' and fmt.get('vcodec') != 'none':
                             if quality == '1080p' and fmt.get('height', 0) <= 1080:
-                                selected_format = fmt
+                                download_url = fmt['url']
                                 break
                             elif quality == '720p' and fmt.get('height', 0) <= 720:
-                                selected_format = fmt
+                                download_url = fmt['url']
                                 break
                             elif quality == '480p' and fmt.get('height', 0) <= 480:
-                                selected_format = fmt
+                                download_url = fmt['url']
                                 break
 
-                if selected_format:
-                    download_url = selected_format['url']
-                else:
-                    # Fallback to the first available format with URL
+                if not download_url:
+                    # Fallback
                     for fmt in info['formats']:
                         if fmt.get('url'):
                             download_url = fmt['url']
                             break
-                    else:
-                        raise Exception("No direct download URL found")
-            else:
-                raise Exception("No download URL available")
 
-            # Determine file extension
-            if format_type == 'mp3':
-                file_ext = 'mp3'
-            else:
-                file_ext = info.get('ext', 'mp4')
+            if not download_url:
+                raise Exception("No direct download URL found")
+
+            file_ext = 'mp3' if format_type == 'mp3' else info.get('ext', 'mp4')
 
             return {
                 'success': True,
@@ -169,12 +161,10 @@ def get_direct_download_url(url, quality, format_type):
 def download_video(url, quality, format_type, output_dir='downloads'):
     """Download video with specified quality and format"""
     try:
-        # Create output directory with parents if needed
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         print(f"[DEBUG] Created/verified output directory: {output_path.absolute()}", file=sys.stderr)
 
-        # Configure download options based on format
         if format_type == 'mp3':
             ydl_opts = {
                 'format': 'bestaudio/best',
@@ -189,7 +179,6 @@ def download_video(url, quality, format_type, output_dir='downloads'):
                 'noprogress': True,
             }
         else:
-            # For video formats, try to get the requested quality
             if quality == '1080p':
                 format_selector = 'best[height<=1080]'
             elif quality == '720p':
@@ -208,14 +197,10 @@ def download_video(url, quality, format_type, output_dir='downloads'):
             }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Get info first to determine filename
             info = ydl.extract_info(url, download=False)
             title = info.get('title', 'video')
-
-            # Clean filename
             safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).rstrip()
 
-            # Download the video
             ydl.download([url])
 
             return {
